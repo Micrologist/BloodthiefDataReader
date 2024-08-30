@@ -66,6 +66,11 @@ public static class ProcessExtensions
         return *(T*) ptr;
     }
 
+    public static unsafe T ReadValue<T>(this Process process, IntPtr address) where T : unmanaged
+    {
+        return Read<T>(process, address);
+    }
+
 
 	public static unsafe bool ReadBytes(this Process process, IntPtr address, int size, out byte[] val)
     {
