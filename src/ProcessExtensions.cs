@@ -60,7 +60,7 @@ public static class ProcessExtensions
         var res = process_vm_readv(process.Id, &localIo, 1, &remoteIo, 1, 0);
         if (res == -1)
         {
-            throw new AccessViolationException("Failed to read " + sizeof(T) + $" bytes from {address:x8}.");
+            return default(T);
         }
 
         return *(T*) ptr;
@@ -92,8 +92,7 @@ public static class ProcessExtensions
 
 		var res = process_vm_readv(process.Id, &localIo, 1, &remoteIo, 1, 0);
 		if (res == -1)
-		{
-            throw new AccessViolationException("Failed to read " + size + $" bytes from {address:x8}.");
+		{   
             return false;
 		}
 

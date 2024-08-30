@@ -1,5 +1,8 @@
 ﻿using MemUtil;
 using System.Diagnostics;
+using System.Numerics;
+
+Console.Clear();
 
 var proc = Process.GetProcessesByName("bloodthief_v0.01.x86_64").FirstOrDefault();
 
@@ -35,7 +38,7 @@ var childArrayPtr = proc.ReadValue<IntPtr>((IntPtr)rootWindow + 0x198);
 
 //Iterating through all scene root nodes to find the GameManager and EndLevelScreen nodes
 //Caching here only works because the nodes aren't ever destroyed/created at runtime
-var GameManager = IntPtr.Zero;
+var GameManagerObj = IntPtr.Zero;
 var EndLevelScreen = IntPtr.Zero;
 
 for (int i = 0; i < childCount; i++)
@@ -45,7 +48,7 @@ for (int i = 0; i < childCount; i++)
 
 	if (childName == "GameManager")
 	{
-		GameManager = child;
+		GameManagerObj = child;
 	}
 	else if (childName == "EndLevelScreen")
 	{
@@ -53,7 +56,7 @@ for (int i = 0; i < childCount; i++)
 	}
 }
 
-if (GameManager == IntPtr.Zero || EndLevelScreen == IntPtr.Zero)
+if (GameManagerObj == IntPtr.Zero || EndLevelScreen == IntPtr.Zero)
 {
 	//This should only happen during game boot
 	Console.WriteLine("GameManager/EndLevelScreen not found - trying again!");
@@ -61,17 +64,44 @@ if (GameManager == IntPtr.Zero || EndLevelScreen == IntPtr.Zero)
 	return;
 }
 
-Console.WriteLine($"GameManager found at 0x{GameManager:X}\n" +
+Console.WriteLine($"GameManager found at 0x{GameManagerObj:X}\n" +
 	$"EndLevelScreen found at 0x{EndLevelScreen:X}");
 
+//This grabs the GDScriptInstance attached to the GameManager Node
+var GameManager = proc.ReadValue<IntPtr>((IntPtr)GameManagerObj + 0x68);
 
+//Vector<Variant> GDScriptInstance.members
+var gameManagerMemberArray = proc.ReadValue<IntPtr>((IntPtr)GameManager + 0x28);
 
+Console.WriteLine();
 
+while (proc != null && !proc.HasExited)
+{
 
+	var currentSceneNode = proc.ReadValue<IntPtr>(SceneTree + 0x3C0);
+	var scene = ReadStringName(proc.ReadValue<IntPtr>(currentSceneNode + 0x1F0));
 
+	var checkpointNum = proc.ReadValue<int>(gameManagerMemberArray + 0x230);
 
+	var igt = (proc.ReadValue<double>(gameManagerMemberArray + 0xE0) - 7.2) / 13.3; ;
 
+	var levelFinished = proc.ReadValue<bool>(EndLevelScreen + 0x41C);
 
+	var playerPtr = proc.ReadValue<IntPtr>(gameManagerMemberArray + 0x28);
+	var xVel = proc.ReadValue<float>(playerPtr + 0x5E8);
+	var zVel = proc.ReadValue<float>(playerPtr + 0x5F0);
+	var speed = Math.Sqrt((xVel * xVel) + (zVel * zVel));
+
+	var consoleWidth = Console.WindowWidth;
+	Console.SetCursorPosition(0, 4);
+	Console.WriteLine($"scene: {scene}".PadRight(consoleWidth));
+	Console.WriteLine($"checkpointNum: {checkpointNum}".PadRight(consoleWidth));
+	Console.WriteLine($"igt: {igt:0.00}".PadRight(consoleWidth));
+	Console.WriteLine($"levelFinished: {levelFinished}".PadRight(consoleWidth));
+	Console.WriteLine($"speed: {speed:0.0} m/s".PadRight(consoleWidth));
+
+	Thread.Sleep(50);
+}
 
 //String Names contain a pointer to a utf32 encoded string, this is ugly but works well enough
 string ReadStringName(IntPtr ptr)
