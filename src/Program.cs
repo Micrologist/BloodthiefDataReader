@@ -14,7 +14,13 @@ if (proc is null)
 }
 
 var scn = new SignatureScanner(proc, proc.MainModule.BaseAddress, proc.MainModule.ModuleMemorySize);
-var sceneTreeTrg = new SigScanTarget(3, "48 8b 05 ?? ?? ?? ?? 48 8b b7 ?? ?? ?? ?? 48 89 fb 48 89 d5") { OnFound = (p, s, ptr) => ptr + 0x4 + proc.Read<int>(ptr) };
+// Scanning for code that statically references (a pointer to) the SceneTree instance
+// 48 8b 05 ?? ?? ?? ??				mov rax, QWORD PTR [rip+??] <-
+// 48 8b b7 ?? ?? ?? ??				mov rsi, QWORD PTR [rdi+xx]
+// 48 89 fb							mov rbx, rdi
+// 48 89 d5							mov rbp, rdx
+var sceneTreeTrg = new SigScanTarget(3, "48 8b 05 ?? ?? ?? ?? 48 8b b7 ?? ?? ?? ?? 48 89 fb 48 89 d5") 
+	{ OnFound = (p, s, ptr) => ptr + 0x4 + proc.Read<int>(ptr) };
 var sceneTreePtr = scn.Scan(sceneTreeTrg);
 
 if (sceneTreePtr == IntPtr.Zero)
@@ -26,18 +32,18 @@ if (sceneTreePtr == IntPtr.Zero)
 
 Console.WriteLine($"SceneTree found at 0x{sceneTreePtr:X}");
 
-//Follow the pointer
+// Follow the pointer
 var SceneTree = proc.ReadValue<IntPtr>((IntPtr)sceneTreePtr);
 
-//SceneTree.root
+// SceneTree.root
 var rootWindow = proc.ReadValue<IntPtr>((IntPtr)SceneTree + 0x2D0);
 
-//We are starting from the rootwindow node, its children are the scene root nodes
+// We are starting from the rootwindow node, its children are the scene root nodes
 var childCount = proc.ReadValue<int>((IntPtr)rootWindow + 0x190);
 var childArrayPtr = proc.ReadValue<IntPtr>((IntPtr)rootWindow + 0x198);
 
-//Iterating through all scene root nodes to find the GameManager and EndLevelScreen nodes
-//Caching here only works because the nodes aren't ever destroyed/created at runtime
+// Iterating through all scene root nodes to find the GameManager and EndLevelScreen nodes
+// Caching here only works because the nodes aren't ever destroyed/created at runtime
 var GameManagerObj = IntPtr.Zero;
 var EndLevelScreen = IntPtr.Zero;
 
@@ -58,8 +64,8 @@ for (int i = 0; i < childCount; i++)
 
 if (GameManagerObj == IntPtr.Zero || EndLevelScreen == IntPtr.Zero)
 {
-	//This should only happen during game boot
-	Console.WriteLine("GameManager/EndLevelScreen not found - trying again!");
+	// This can happen when the game isn't done initializing yet
+	Console.WriteLine("GameManager/EndLevelScreen not found");
 	Console.ReadKey();
 	return;
 }
@@ -67,26 +73,30 @@ if (GameManagerObj == IntPtr.Zero || EndLevelScreen == IntPtr.Zero)
 Console.WriteLine($"GameManager found at 0x{GameManagerObj:X}\n" +
 	$"EndLevelScreen found at 0x{EndLevelScreen:X}");
 
-//This grabs the GDScriptInstance attached to the GameManager Node
-var GameManager = proc.ReadValue<IntPtr>((IntPtr)GameManagerObj + 0x68);
+// This grabs the GDScriptInstance attached to the GameManager Node
+var GameManagerScript = proc.ReadValue<IntPtr>((IntPtr)GameManagerObj + 0x68);
 
-//Vector<Variant> GDScriptInstance.members
-var gameManagerMemberArray = proc.ReadValue<IntPtr>((IntPtr)GameManager + 0x28);
+// Vector<Variant> GDScriptInstance.members
+var gameManagerMemberArray = proc.ReadValue<IntPtr>((IntPtr)GameManagerScript + 0x28);
 
 Console.WriteLine();
 
 while (proc != null && !proc.HasExited)
 {
-
+	// SceneTree.current_scene.name
 	var currentSceneNode = proc.ReadValue<IntPtr>(SceneTree + 0x3C0);
 	var scene = ReadStringName(proc.ReadValue<IntPtr>(currentSceneNode + 0x1F0));
 
+	// GameManager.current_checkpoint
 	var checkpointNum = proc.ReadValue<int>(gameManagerMemberArray + 0x230);
 
-	var igt = (proc.ReadValue<double>(gameManagerMemberArray + 0xE0) - 7.2) / 13.3; ;
+	// GameManager.total_game_seconds (sans obfuscation)
+	var igt = (proc.ReadValue<double>(gameManagerMemberArray + 0xE0) - 7.2) / 13.3;
 
+	// EndLevelScreen.visible
 	var levelFinished = proc.ReadValue<bool>(EndLevelScreen + 0x41C);
 
+	// GameManager.player.velocity
 	var playerPtr = proc.ReadValue<IntPtr>(gameManagerMemberArray + 0x28);
 	var xVel = proc.ReadValue<float>(playerPtr + 0x5E8);
 	var zVel = proc.ReadValue<float>(playerPtr + 0x5F0);
@@ -103,7 +113,7 @@ while (proc != null && !proc.HasExited)
 	Thread.Sleep(50);
 }
 
-//String Names contain a pointer to a utf32 encoded string, this is ugly but works well enough
+// String Names contain a pointer to a utf32 encoded string, this is ugly but works well enough
 string ReadStringName(IntPtr ptr)
 {
 	var output = "";
